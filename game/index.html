@@ -1,0 +1,98 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>V4 Flight — low-poly mission flying</title>
+<style>
+  :root { --ink:#e8eef4; --dim:#8fa3b8; --amber:#ffc94d; --panel:rgba(8,11,16,.82); }
+  * { box-sizing: border-box; }
+  html, body { margin:0; padding:0; height:100%; overflow:hidden; background:#0b0f14; font-family:Inter, system-ui, sans-serif; color:var(--ink); }
+  #view { position:fixed; inset:0; }
+  #view canvas { display:block; }
+  .hud { position:fixed; z-index:5; pointer-events:none; }
+  #hud-tapes { top:14px; left:14px; display:flex; gap:10px; }
+  .tape { background:var(--panel); border:1px solid #2a3646; border-radius:8px; padding:6px 12px; text-align:center; min-width:76px; }
+  .tape .v { font-size:24px; font-weight:800; line-height:1; }
+  .tape .k { font-size:9px; letter-spacing:.14em; color:var(--dim); margin-top:3px; }
+  #hud-obj { top:14px; right:14px; width:300px; background:var(--panel); border:1px solid #2a3646; border-radius:8px; padding:10px 12px; }
+  #hud-obj-title { font-weight:800; font-size:14px; color:var(--amber); }
+  #hud-obj-body { font-size:12px; color:var(--ink); margin-top:4px; line-height:1.45; }
+  #hud-clock { font-size:11px; color:var(--dim); margin-top:4px; }
+  #hud-meters { left:14px; bottom:14px; width:230px; background:var(--panel); border:1px solid #2a3646; border-radius:8px; padding:10px 12px; }
+  .meter { display:flex; align-items:center; gap:8px; margin:4px 0; font-size:10px; letter-spacing:.1em; color:var(--dim); }
+  .meter .bar { flex:1; height:8px; background:#1a222d; border-radius:4px; overflow:hidden; }
+  .meter .fill { height:100%; background:#43b581; width:100%; }
+  #hud-hull-fill { background:#d9a441; }
+  #hud-thr-fill { background:#6be3ff; }
+  #hud-warn { top:86px; left:50%; transform:translateX(-50%); font-weight:800; font-size:17px; color:#ff5a4d; text-shadow:0 2px 8px #000; opacity:0; transition:opacity .2s; }
+  #hud-radio { bottom:16px; left:50%; transform:translateX(-50%); max-width:640px; background:var(--panel); border-left:3px solid var(--amber); border-radius:6px; padding:8px 14px; font-size:13px; opacity:0; transition:opacity .3s; }
+  #panel { position:fixed; z-index:6; left:50%; transform:translateX(-50%); bottom:12px; display:none; border-radius:8px; }
+  body.cockpit-on #hud-radio { bottom:172px; }
+  #screen { position:fixed; inset:0; z-index:10; overflow:auto; background:linear-gradient(180deg, #101820 0%, #0b0f14 100%); padding:26px 30px; display:none; }
+  #screen.open { display:block; }
+  .game-title { font-size:30px; font-weight:900; letter-spacing:.02em; }
+  .hangar-head { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:10px; }
+  .chips { display:flex; gap:8px; flex-wrap:wrap; }
+  .chip { background:#1a222d; border:1px solid #2a3646; border-radius:20px; padding:5px 12px; font-size:12px; font-weight:700; }
+  h3 { margin:20px 0 8px; font-size:12px; letter-spacing:.18em; color:var(--dim); }
+  .cards { display:grid; grid-template-columns:repeat(auto-fit, minmax(230px, 1fr)); gap:10px; }
+  .card { background:#141b24; border:1px solid #2a3646; border-radius:10px; padding:12px; }
+  .card.active { border-color:var(--amber); }
+  .card-name { font-weight:800; font-size:16px; border-left:4px solid #888; padding-left:8px; }
+  .card-role { font-size:11.5px; color:var(--dim); margin:6px 0; line-height:1.5; }
+  .tiers { font-size:11px; color:var(--ink); margin:6px 0; }
+  .board { display:grid; grid-template-columns:repeat(auto-fit, minmax(330px, 1fr)); gap:10px; }
+  .contract { background:#141b24; border:1px solid #2a3646; border-radius:10px; padding:12px; }
+  .contract.locked { opacity:.55; }
+  .c-head { display:flex; justify-content:space-between; gap:8px; }
+  .c-name { font-weight:800; }
+  .c-pay { color:var(--amber); font-weight:700; font-size:12px; white-space:nowrap; }
+  .c-brief { font-size:12.5px; font-style:italic; margin:6px 0; line-height:1.45; }
+  .c-meta { font-size:11px; color:var(--dim); margin-bottom:8px; }
+  .medals { display:flex; gap:6px; flex-wrap:wrap; }
+  .medal { border:1px solid #2a3646; border-radius:16px; padding:4px 10px; font-size:11px; color:var(--dim); }
+  .medal.won { color:#10151c; background:var(--amber); border-color:var(--amber); font-weight:700; }
+  button { background:var(--amber); color:#10151c; border:0; border-radius:6px; padding:6px 12px; font-weight:800; font-size:12px; cursor:pointer; margin:2px 4px 2px 0; }
+  button[disabled] { background:#2a3646; color:var(--dim); cursor:default; }
+  .foot { margin-top:18px; font-size:11px; color:var(--dim); }
+  .results { max-width:520px; margin:40px auto; background:#141b24; border:1px solid #2a3646; border-radius:12px; padding:22px; }
+  .verdict { font-size:26px; font-weight:900; color:var(--amber); }
+  .r-title { font-size:15px; color:var(--dim); margin-bottom:10px; }
+  table.slip { width:100%; border-collapse:collapse; font-size:13.5px; }
+  table.slip td { padding:5px 2px; border-bottom:1px solid #223041; }
+  table.slip td:first-child { color:var(--dim); }
+  .new-medals { margin:12px 0; color:var(--amber); font-weight:700; }
+  #help { position:fixed; z-index:5; right:14px; bottom:14px; font-size:11px; color:var(--dim); background:var(--panel); padding:6px 10px; border-radius:6px; }
+</style>
+<script type="importmap">
+{ "imports": { "three": "./vendor/three.module.min.js" } }
+</script>
+</head>
+<body>
+<div id="view"></div>
+
+<div class="hud" id="hud-tapes">
+  <div class="tape"><div class="v" id="hud-spd">0</div><div class="k">SPD KT</div></div>
+  <div class="tape"><div class="v" id="hud-alt">0</div><div class="k">ALT M</div></div>
+  <div class="tape"><div class="v" id="hud-hdg">000°</div><div class="k">HDG</div></div>
+</div>
+<div class="hud" id="hud-obj">
+  <div id="hud-obj-title">—</div>
+  <div id="hud-obj-body">—</div>
+  <div id="hud-clock">00:00</div>
+</div>
+<div class="hud" id="hud-meters">
+  <div class="meter">FUEL <div class="bar"><div class="fill" id="hud-fuel"></div></div></div>
+  <div class="meter">HULL <div class="bar"><div class="fill" id="hud-hull" style="background:#d9a441"></div></div></div>
+  <div class="meter">THR&nbsp; <div class="bar"><div class="fill" id="hud-thr" style="background:#6be3ff"></div></div></div>
+</div>
+<div class="hud" id="hud-warn"></div>
+<div class="hud" id="hud-radio"></div>
+<canvas id="panel" width="540" height="150"></canvas>
+<div id="help">W/S pitch · A/D roll · Q/E throttle · F flaps · G gear · Space brake · C camera</div>
+<div id="screen"></div>
+
+<script type="module" src="./src/main.js"></script>
+</body>
+</html>
